@@ -203,8 +203,22 @@ function renderResults(data) {
 
   if(countEl) countEl.textContent = `Showing: ${visible.length}`;
 
+  // Update charts with current data
+  updateCharts(data);
+
   // wire category filter and search to re-render
-  sel.onchange = ()=> renderResults(currentResults);
+  sel.onchange = ()=> {
+    renderResults(currentResults);
+    // Update stats panel highlighting when filter changes
+    const categoryCount = {};
+    data.forEach(item => {
+      const label = item.predicted_label || item.label || 'Unknown';
+      categoryCount[label] = (categoryCount[label] || 0) + 1;
+    });
+    updateStatsPanel(categoryCount, data.length);
+  };
+  // wire date filter to re-render when changed
+  if(dateSel) dateSel.onchange = ()=> renderResults(currentResults);
   const si = document.getElementById('searchInput'); if(si) si.oninput = ()=> renderResults(currentResults);
 }
 
@@ -339,6 +353,9 @@ if(cbtn){
     const singleSpinner = document.getElementById('singleSpinner'); if(singleSpinner) singleSpinner.style.display = 'none';
     const sel = document.getElementById('categoryFilter'); if(sel) sel.innerHTML = '<option value="">(all)</option>';
     const dsel = document.getElementById('dateFilter'); if(dsel) dsel.innerHTML = '<option value="">(all dates)</option>';
+    // hide charts and stats
+    document.getElementById('statsCard').style.display = 'none';
+    document.getElementById('chartsCard').style.display = 'none';
     // reset the hidden file input so re-selecting the same file will fire change
     const fi = document.getElementById('fileInput');
     if(fi){
@@ -399,3 +416,222 @@ function initTitleLetterAnimation(){
 
 // start animation shortly after load so CSS is applied
 setTimeout(initTitleLetterAnimation, 220);
+
+// ===============================
+// CHARTS AND VISUALIZATION
+// ===============================
+let pieChartInstance = null;
+let barChartInstance = null;
+
+function updateCharts(data) {
+  if (!data || data.length === 0) {
+    // Hide charts if no data
+    document.getElementById('statsCard').style.display = 'none';
+    document.getElementById('chartsCard').style.display = 'none';
+    return;
+  }
+
+  // Show chart cards
+  document.getElementById('statsCard').style.display = 'block';
+  document.getElementById('chartsCard').style.display = 'block';
+
+  // Calculate category distribution
+  const categoryCount = {};
+  data.forEach(item => {
+    const label = item.predicted_label || item.label || 'Unknown';
+    categoryCount[label] = (categoryCount[label] || 0) + 1;
+  });
+
+  const categories = Object.keys(categoryCount).sort((a, b) => categoryCount[b] - categoryCount[a]);
+  const counts = categories.map(cat => categoryCount[cat]);
+  const total = data.length;
+  const percentages = counts.map(count => ((count / total) * 100).toFixed(1));
+
+  // Color palette
+  const chartColors = [
+    '#2563eb', '#06b6d4', '#f97316', '#ef4444', 
+    '#7c3aed', '#059669', '#eab308', '#db2777',
+    '#8b5cf6', '#10b981', '#f59e0b', '#ec4899'
+  ];
+
+  // Update statistics panel
+  updateStatsPanel(categoryCount, total);
+
+  // Destroy previous chart instances
+  if (pieChartInstance) {
+    pieChartInstance.destroy();
+    pieChartInstance = null;
+  }
+  if (barChartInstance) {
+    barChartInstance.destroy();
+    barChartInstance = null;
+  }
+
+  // Create Pie Chart
+  const pieCtx = document.getElementById('pieChart');
+  if (pieCtx) {
+    pieChartInstance = new Chart(pieCtx, {
+      type: 'pie',
+      data: {
+        labels: categories,
+        datasets: [{
+          data: counts,
+          backgroundColor: chartColors.slice(0, categories.length),
+          borderColor: '#ffffff',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              padding: 15,
+              font: { size: 12, family: 'Inter' },
+              generateLabels: function(chart) {
+                const data = chart.data;
+                return data.labels.map((label, i) => ({
+                  text: `${label} (${percentages[i]}%)`,
+                  fillStyle: data.datasets[0].backgroundColor[i],
+                  hidden: false,
+                  index: i
+                }));
+              }
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const label = context.label || '';
+                const value = context.parsed || 0;
+                const percentage = ((value / total) * 100).toFixed(1);
+                return `${label}: ${value} articles (${percentage}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Create Bar Chart
+  const barCtx = document.getElementById('barChart');
+  if (barCtx) {
+    barChartInstance = new Chart(barCtx, {
+      type: 'bar',
+      data: {
+        labels: categories,
+        datasets: [{
+          label: 'Number of Articles',
+          data: counts,
+          backgroundColor: chartColors.slice(0, categories.length).map(color => color + 'cc'),
+          borderColor: chartColors.slice(0, categories.length),
+          borderWidth: 2,
+          borderRadius: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              stepSize: 1,
+              font: { size: 11, family: 'Inter' }
+            },
+            grid: {
+              color: 'rgba(0, 0, 0, 0.05)'
+            }
+          },
+          x: {
+            ticks: {
+              font: { size: 11, family: 'Inter' }
+            },
+            grid: {
+              display: false
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const value = context.parsed.y || 0;
+                const percentage = ((value / total) * 100).toFixed(1);
+                return `${value} articles (${percentage}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+}
+
+function updateStatsPanel(categoryCount, total) {
+  const statsPanel = document.getElementById('statsPanel');
+  if (!statsPanel) return;
+
+  const categories = Object.keys(categoryCount).sort((a, b) => categoryCount[b] - categoryCount[a]);
+  
+  // Get current filter selection
+  const categoryFilter = document.getElementById('categoryFilter');
+  const selectedCategory = categoryFilter ? categoryFilter.value : '';
+  
+  // Create stats HTML
+  let statsHTML = `
+    <div class="stat-item ${selectedCategory === '' ? 'highlighted' : ''}">
+      <div class="stat-label">Total Articles</div>
+      <div class="stat-value">${total}</div>
+    </div>
+  `;
+
+  categories.forEach(category => {
+    const count = categoryCount[category];
+    const percentage = ((count / total) * 100).toFixed(1);
+    const isSelected = selectedCategory === category;
+    statsHTML += `
+      <div class="stat-item category-stat ${isSelected ? 'highlighted' : ''}">
+        <div class="stat-label">${escapeHtml(category)}</div>
+        <div class="stat-value">${count}</div>
+        <div class="stat-percentage">${percentage}%</div>
+      </div>
+    `;
+  });
+
+  statsPanel.innerHTML = statsHTML;
+}
+
+// Chart toggle functionality
+function initChartToggle() {
+  const pieBtn = document.getElementById('pieChartBtn');
+  const barBtn = document.getElementById('barChartBtn');
+  const pieContainer = document.getElementById('pieChartContainer');
+  const barContainer = document.getElementById('barChartContainer');
+
+  if (!pieBtn || !barBtn) return;
+
+  pieBtn.addEventListener('click', () => {
+    pieBtn.classList.add('active');
+    barBtn.classList.remove('active');
+    pieContainer.style.display = 'block';
+    barContainer.style.display = 'none';
+  });
+
+  barBtn.addEventListener('click', () => {
+    barBtn.classList.add('active');
+    pieBtn.classList.remove('active');
+    barContainer.style.display = 'block';
+    pieContainer.style.display = 'none';
+  });
+}
+
+// Initialize toggle on page load
+initChartToggle();
+
