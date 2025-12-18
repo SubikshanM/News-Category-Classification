@@ -203,19 +203,20 @@ function renderResults(data) {
 
   if(countEl) countEl.textContent = `Showing: ${visible.length}`;
 
-  // Update charts with current data
-  updateCharts(data);
+  // Update charts with filtered data (visible results)
+  updateCharts(visible);
+
+  // Update stats panel with filtered data
+  const categoryCount = {};
+  visible.forEach(item => {
+    const label = item.predicted_label || item.label || 'Unknown';
+    categoryCount[label] = (categoryCount[label] || 0) + 1;
+  });
+  updateStatsPanel(categoryCount, visible.length);
 
   // wire category filter and search to re-render
   sel.onchange = ()=> {
     renderResults(currentResults);
-    // Update stats panel highlighting when filter changes
-    const categoryCount = {};
-    data.forEach(item => {
-      const label = item.predicted_label || item.label || 'Unknown';
-      categoryCount[label] = (categoryCount[label] || 0) + 1;
-    });
-    updateStatsPanel(categoryCount, data.length);
   };
   // wire date filter to re-render when changed
   if(dateSel) dateSel.onchange = ()=> renderResults(currentResults);
